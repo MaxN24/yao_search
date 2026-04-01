@@ -90,7 +90,7 @@ impl Cache {
 }
 
 impl Row {
-    const ROW_LEN: usize = 4;
+    const ROW_LEN: usize = 8;
 
     pub fn new() -> Self {
         Row {

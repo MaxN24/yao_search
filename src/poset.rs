@@ -147,7 +147,6 @@ pub trait Poset: Sized + Debug {
         sum
     }
 
-
     fn weight0(&self) -> u64 {
         debug_assert!(self.is_lower_triangle_matrix());
 
@@ -176,7 +175,6 @@ pub trait Poset: Sized + Debug {
         less_subsets.push(BitSet::empty());
 
         for j in 0..self.n() as usize {
-
             let less_than_j = all_less_than[j];
 
             // try adding j to all previous subsets
@@ -209,7 +207,8 @@ pub trait Poset: Sized + Debug {
                     0u64
                 });
                 let w2 = (if b.len() == (self.i()) as usize {
-                    let a = b.complement()
+                    let a = b
+                        .complement()
                         .intersect(BitSet::from_u16((1u16 << self.n()) - 1));
                     let mut min_a = a;
                     for j in 0..self.n() as usize {
@@ -224,7 +223,8 @@ pub trait Poset: Sized + Debug {
                 });
                 (w1, w2)
             })
-            .reduce(|(x1, x2), (y1, y2)| { (x1 + y1, x2 + y2) }).unwrap();
+            .reduce(|(x1, x2), (y1, y2)| (x1 + y1, x2 + y2))
+            .unwrap();
         return w1.max(w2);
     }
 
@@ -256,7 +256,6 @@ pub trait Poset: Sized + Debug {
         less_subsets.push(BitSet::empty());
 
         for j in 0..self.n() as usize {
-
             let less_than_j = all_less_than[j];
 
             // try adding j to all previous subsets
@@ -276,7 +275,8 @@ pub trait Poset: Sized + Debug {
         let (w1, w2) = less_subsets
             .iter()
             .map(|b| {
-                let a = b.complement()
+                let a = b
+                    .complement()
                     .intersect(BitSet::from_u16((1u16 << self.n()) - 1));
                 let mut max_b = *b;
                 for j in 0..self.n() as usize {
@@ -292,7 +292,9 @@ pub trait Poset: Sized + Debug {
                 }
                 let w1 = (if b.len() == self.i() as usize {
                     let sqrtn = (max_comparisons as f64).sqrt();
-                    if min_a.len() >= (sqrtn).ceil() as usize && min_a.len() + max_b.len() >= 2 * sqrtn.ceil() as usize {
+                    if min_a.len() >= (sqrtn).ceil() as usize
+                        && min_a.len() + max_b.len() >= 2 * sqrtn.ceil() as usize
+                    {
                         let exp = (min_a.len() + max_b.len()) as u32 - 2 * sqrtn.ceil() as u32;
                         2u128.pow(exp) * scale / (max_b.len() as u128 + 1)
                     } else {
@@ -306,7 +308,9 @@ pub trait Poset: Sized + Debug {
                 });
                 let w2 = (if b.len() == (self.i() + 1) as usize {
                     let sqrtn = (max_comparisons as f64).sqrt();
-                    if max_b.len() >= (sqrtn).ceil() as usize && min_a.len() + max_b.len() >= 2 * sqrtn.ceil() as usize {
+                    if max_b.len() >= (sqrtn).ceil() as usize
+                        && min_a.len() + max_b.len() >= 2 * sqrtn.ceil() as usize
+                    {
                         let exp = (min_a.len() + max_b.len()) as u32 - 2 * sqrtn.ceil() as u32;
                         2u128.pow(exp) * scale / (min_a.len() as u128 + 1)
                     } else {
@@ -320,7 +324,8 @@ pub trait Poset: Sized + Debug {
                 });
                 (w1, w2)
             })
-            .reduce(|(x1, x2), (y1, y2)| { (x1 + y1, x2 + y2) }).unwrap();
+            .reduce(|(x1, x2), (y1, y2)| (x1 + y1, x2 + y2))
+            .unwrap();
         return w1.max(w2);
     }
 }

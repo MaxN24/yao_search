@@ -10,7 +10,17 @@ use std::{
 use hashbrown::HashMap;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
-use crate::{backwards_poset::BackwardsPoset, cache::Cache, constants::{LOWER_BOUNDS, UPPER_BOUNDS}, free_poset::FreePoset, poset::Poset, pseudo_canonified_poset::PseudoCanonifiedPoset, search_backward::start_search_backward, utils::format_duration, WeightFunction};
+use crate::{
+    backwards_poset::BackwardsPoset,
+    cache::Cache,
+    constants::{LOWER_BOUNDS, UPPER_BOUNDS},
+    free_poset::FreePoset,
+    poset::Poset,
+    pseudo_canonified_poset::PseudoCanonifiedPoset,
+    search_backward::start_search_backward,
+    utils::format_duration,
+    WeightFunction,
+};
 
 pub struct Search<'a> {
     n: u8,
@@ -319,11 +329,12 @@ impl<'a> Search<'a> {
         max_comparisons: u8,
         depth: u8,
     ) -> Option<bool> {
-        
         match self.weight_function {
             WeightFunction::CompatibleSolutions => {
                 let compatible_posets = poset.num_compatible_posets();
-                if compatible_posets == 0 || (max_comparisons as u32) < (compatible_posets - 1).ilog2() + 1 {
+                if compatible_posets == 0
+                    || (max_comparisons as u32) < (compatible_posets - 1).ilog2() + 1
+                {
                     return Some(false);
                 }
             }
@@ -343,8 +354,6 @@ impl<'a> Search<'a> {
             }
             WeightFunction::None => {}
         }
-
-        
 
         let (less, greater) = poset.calculate_relations();
 

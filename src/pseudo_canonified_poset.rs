@@ -128,6 +128,29 @@ impl Poset for PseudoCanonifiedPoset {
 
 impl PseudoCanonifiedPoset {
     #[inline]
+    fn estimate_hardness_yao(&self, subset_n: u8) -> u32 {
+        debug_assert!(self.i < subset_n);
+        debug_assert!(subset_n <= self.n);
+
+        let (less, greater) = self.calculate_relations();
+        let down_needed = self.i;
+        let up_needed = subset_n - self.i - 1;
+
+        let mut sum = 0u32;
+        for idx in 0..self.n as usize {
+            // Remaining evidence needed for element `idx` to be a valid witness.
+            let need_down = down_needed.saturating_sub(less[idx]);
+            let need_up = up_needed.saturating_sub(greater[idx]);
+
+            let score_down = MAX_N as u32 - need_down as u32;
+            let score_up = MAX_N as u32 - need_up as u32;
+            sum += score_down.pow(2) + score_up.pow(2);
+        }
+
+        sum
+    }
+
+    #[inline]
     const fn get_index(i: u8, j: u8) -> (usize, usize) {
         debug_assert!(i < j);
         let i = i as usize;
@@ -150,6 +173,13 @@ impl PseudoCanonifiedPoset {
         let mut new: FreePoset = (*self).into();
         new.add_and_close(i, j);
         new.canonified()
+    }
+
+    /// returns a clone of the poset, with i < j added (without reduce_elements)
+    pub fn with_less_without_reduction(&self, i: u8, j: u8) -> PseudoCanonifiedPoset {
+        let mut new: FreePoset = (*self).into();
+        new.add_and_close(i, j);
+        new.canonified_without_reduction()
     }
 
     pub fn to_free(self) -> FreePoset {
@@ -186,6 +216,55 @@ impl PseudoCanonifiedPoset {
 
                 let hardness_less = less.estimate_hardness();
                 let hardness_greater = greater.estimate_hardness();
+
+                let pair = if hardness_less < hardness_greater {
+                    (less, greater, i, j, hardness_greater)
+                } else {
+                    (greater, less, i, j, hardness_less)
+                };
+
+                if pairs
+                    .iter()
+                    .find(
+                        |e: &&(PseudoCanonifiedPoset, PseudoCanonifiedPoset, u8, u8, u32)| {
+                            e.0 == pair.0 && e.1 == pair.1
+                        },
+                    )
+                    .is_none()
+                {
+                    pairs.push(pair);
+                }
+            }
+        }
+
+        pairs.sort_by_key(|pair| pair.4);
+
+        pairs
+            .into_iter()
+            .map(|(a, b, c, d, _)| (a, b, c, d))
+            .collect()
+    }
+
+    pub fn get_comparison_pairs_without_reduction(
+        &self,
+        subset_n: u8,
+    ) -> Vec<(PseudoCanonifiedPoset, PseudoCanonifiedPoset, u8, u8)> {
+        debug_assert!(self.i < subset_n);
+        debug_assert!(subset_n <= self.n);
+
+        let mut pairs = Vec::with_capacity(self.n() as usize * (self.n() as usize - 1) / 2);
+
+        for i in 0..self.n() {
+            for j in (i + 1)..self.n() {
+                if self.has_order(i, j) {
+                    continue;
+                }
+
+                let less = self.with_less_without_reduction(i, j);
+                let greater = self.with_less_without_reduction(j, i);
+
+                let hardness_less = less.estimate_hardness_yao(subset_n);
+                let hardness_greater = greater.estimate_hardness_yao(subset_n);
 
                 let pair = if hardness_less < hardness_greater {
                     (less, greater, i, j, hardness_greater)

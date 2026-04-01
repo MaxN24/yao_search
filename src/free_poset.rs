@@ -99,10 +99,15 @@ impl FreePoset {
     /// adds i < j and makes sure, that i < j && j < k => i < k is true
     #[inline]
     pub fn add_and_close(&mut self, i: u8, j: u8) {
-        let mut stack = Vec::with_capacity(self.n() as usize);
+        let n = self.n() as usize;
+        let mut stack = Vec::with_capacity(n * n);
         stack.push((i, j));
 
         while let Some((i, j)) = stack.pop() {
+            if self.is_less(i, j) {
+                continue;
+            }
+
             self.set_is_less(i, j);
 
             for k in self
@@ -125,6 +130,7 @@ impl FreePoset {
     pub fn canonified(&self) -> PseudoCanonifiedPoset {
         let mut copy = *self;
         copy.reduce_elements();
+
         let mapping = copy.get_canonification_mapping();
 
         let mut canonified = PseudoCanonifiedPoset::new(copy.n, copy.i);
@@ -133,6 +139,46 @@ impl FreePoset {
             let mapped_i = mapping[i as usize] as u8;
             for j in (i + 1)..canonified.n() {
                 if copy.is_less(mapped_i, mapping[j as usize] as u8) {
+                    canonified.set_is_less(i, j);
+                }
+            }
+        }
+
+        canonified
+    }
+
+    #[inline]
+    pub fn canonified_without_reduction(&self) -> PseudoCanonifiedPoset {
+        let mapping = self.get_canonification_mapping();
+
+        let mut canonified = PseudoCanonifiedPoset::new(self.n, self.i);
+
+        let mut is_identity = true;
+        for (new_idx, &old_idx) in mapping.iter().take(self.n as usize).enumerate() {
+            if new_idx != old_idx {
+                is_identity = false;
+                break;
+            }
+        }
+
+        if is_identity {
+            for i in 0..canonified.n() {
+                let row_bits = self.adjacency[i as usize].bits();
+                for j in (i + 1)..canonified.n() {
+                    if row_bits & (1u16 << j) != 0 {
+                        canonified.set_is_less(i, j);
+                    }
+                }
+            }
+            return canonified;
+        }
+
+        for i in 0..canonified.n() {
+            let mapped_i = mapping[i as usize];
+            let row_bits = self.adjacency[mapped_i].bits();
+            for j in (i + 1)..canonified.n() {
+                let mapped_j = mapping[j as usize];
+                if row_bits & (1u16 << mapped_j) != 0 {
                     canonified.set_is_less(i, j);
                 }
             }
@@ -153,19 +199,35 @@ impl FreePoset {
     fn get_canonification_mapping(&self) -> [usize; MAX_N] {
         let n = self.n as usize;
 
-        let mut ordered_with_subsets = [BitSet::empty(); MAX_N];
+        let active_mask = if n == MAX_N {
+            u16::MAX
+        } else {
+            ((1u32 << n) - 1) as u16
+        };
 
-        let mut in_out_degree = [0; MAX_N];
-
-        for i in 0..n {
-            let greater = self.get_all_greater_than(i as u8);
-            let less = self.get_all_less_than(i as u8);
-
-            ordered_with_subsets[i] = greater.union(less);
-            in_out_degree[i] = greater.len() as u64 * MAX_N as u64 + less.len() as u64;
+        let mut greater = [0u16; MAX_N];
+        for (idx, greater_bits) in greater.iter_mut().enumerate().take(n) {
+            *greater_bits = self.adjacency[idx].bits() & active_mask;
         }
 
-        let in_out_degree = in_out_degree;
+        // Compute transpose once: less[x] contains all y with y < x.
+        let mut less = [0u16; MAX_N];
+        for (y, &greater_than_y) in greater.iter().enumerate().take(n) {
+            let mut bits = greater_than_y;
+            while bits != 0 {
+                let x = bits.trailing_zeros() as usize;
+                less[x] |= 1u16 << y;
+                bits &= bits - 1;
+            }
+        }
+
+        let mut ordered_with_subsets = [0u16; MAX_N];
+        let mut in_out_degree = [0u64; MAX_N];
+        for i in 0..n {
+            ordered_with_subsets[i] = greater[i] | less[i];
+            in_out_degree[i] =
+                greater[i].count_ones() as u64 * MAX_N as u64 + less[i].count_ones() as u64;
+        }
 
         let mut hash = in_out_degree;
 
@@ -174,8 +236,11 @@ impl FreePoset {
 
             for i in 0..n {
                 // sum hashes of neighbours
-                for j in ordered_with_subsets[i] {
+                let mut bits = ordered_with_subsets[i];
+                while bits != 0 {
+                    let j = bits.trailing_zeros() as usize;
                     sum_hash[i] = sum_hash[i].wrapping_add(hash[j]);
+                    bits &= bits - 1;
                 }
             }
 
