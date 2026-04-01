@@ -16,10 +16,7 @@ Options:
   --max-total-m INT           Hard cap for total poset size m (default: 16)
   --extra-min INT             Minimum extra elements (m-n). If set, uses m=n+extra.
   --extra-max INT             Maximum extra elements (m-n). Must be used with --extra-min.
-  --i-mode all|half           all: i=0..n-1, half: i=0..floor((n-1)/2) (default: all)
-  --order easy|hard           Run order by estimated runtime (default: easy)
-                             easy: i asc, then n asc, then m asc (small i first globally)
-                             hard: i desc, then n desc, then m desc
+  --i-mode all|half           Accepted for compatibility; the sweep follows the fixed plan below
   --max-cache-size BYTES      Forward cache size (default: 4294967296 / 4 GiB)
   --resume-csv PATH           Resume from existing CSV and skip finished (m,n,i), append new rows
   --progress-file PATH        Persistent index of computed (m,n,i) across runs
@@ -48,7 +45,6 @@ max_total_m=16
 extra_min=""
 extra_max=""
 i_mode="all"
-order_mode="easy"
 max_cache_size=4294967296
 resume_csv=""
 log_root="logs/yao"
@@ -58,6 +54,65 @@ classic_check=0
 no_yao_prune=0
 do_build=1
 bin_path="./target/release/selection_generator"
+
+# Sweep plan for the classic selection lines we care about.
+# Fields: n, i_1based, classic_value, m_max
+SWEEP_PLAN=(
+  "3,2,3,3"
+  "4,2,4,4"
+  "5,2,6,7"
+  "5,3,6,7"
+  "6,2,7,8"
+  "6,3,8,10"
+  "7,2,8,9"
+  "7,3,10,13"
+  "7,4,10,13"
+  "8,2,9,10"
+  "8,3,11,14"
+  "8,4,12,16"
+  "9,2,11,13"
+  "9,3,12,15"
+  "9,4,14,16"
+  "9,5,14,16"
+  "10,2,12,14"
+  "10,3,14,16"
+  "10,4,15,16"
+  "10,5,16,16"
+  "11,2,13,15"
+  "11,3,15,16"
+  "11,4,17,16"
+  "11,5,18,16"
+  "11,6,18,16"
+  "12,2,14,16"
+  "12,3,17,16"
+  "12,4,18,16"
+  "12,5,19,16"
+  "12,6,20,16"
+  "13,2,15,16"
+  "13,3,18,16"
+  "13,4,20,16"
+  "13,5,21,16"
+  "13,6,22,16"
+  "13,7,23,16"
+  "14,2,16,16"
+  "14,3,19,16"
+  "14,4,21,16"
+  "14,5,23,16"
+  "14,6,24,16"
+  "14,7,25,16"
+  "15,2,17,16"
+  "15,3,20,16"
+  "15,4,23,16"
+  "15,5,24,16"
+  "15,6,26,16"
+  "15,7,26,16"
+  "15,8,27,16"
+  "16,2,18,16"
+  "16,3,21,16"
+  "16,4,24,16"
+  "16,5,26,16"
+  "16,6,27,16"
+)
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -91,10 +146,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --i-mode)
       i_mode="$2"
-      shift 2
-      ;;
-    --order)
-      order_mode="$2"
       shift 2
       ;;
     --max-cache-size)
@@ -143,11 +194,6 @@ done
 
 if [[ "$i_mode" != "all" && "$i_mode" != "half" ]]; then
   echo "Invalid --i-mode: $i_mode (expected all|half)" >&2
-  exit 1
-fi
-
-if [[ "$order_mode" != "easy" && "$order_mode" != "hard" ]]; then
-  echo "Invalid --order: $order_mode (expected easy|hard)" >&2
   exit 1
 fi
 
@@ -242,7 +288,6 @@ fi
   echo "n range: [$n_min, $n_max]"
   echo "max total m: $max_total_m"
   echo "i mode: $i_mode"
-  echo "order mode: $order_mode"
   echo "max cache size: $max_cache_size"
   if [[ -n "$resume_csv" ]]; then
     echo "resume csv: $resume_csv"
@@ -358,49 +403,60 @@ load_completed_keys "$csv_file" 2 3 4 5 7
 
 tmp_runs_file="$(mktemp /tmp/yao_runs.XXXXXX)"
 
-for ((n = n_min; n <= n_max; n++)); do
-  m_values=()
-  if [[ -n "$extra_min" ]]; then
-    for ((extra = extra_min; extra <= extra_max; extra++)); do
-      m_values+=("$((n + extra))")
-    done
-  else
-    m_start="$m_min"
-    if (( m_start < n )); then
-      m_start="$n"
-    fi
-    m_end="$m_max"
-    if (( m_end > max_total_m )); then
-      m_end="$max_total_m"
-    fi
-    for ((m = m_start; m <= m_end; m++)); do
-      m_values+=("$m")
-    done
+for plan in "${SWEEP_PLAN[@]}"; do
+  IFS=, read -r plan_n plan_i_1based _ plan_m_max <<< "$plan"
+
+  if (( plan_n < n_min || plan_n > n_max )); then
+    continue
   fi
 
-  for m in "${m_values[@]}"; do
+  plan_i=$((plan_i_1based - 1))
+  if (( plan_i < 0 || plan_i >= plan_n )); then
+    continue
+  fi
+
+  m_start="$plan_n"
+  m_end="$plan_m_max"
+
+  if [[ -n "$extra_min" ]]; then
+    extra_start=$((plan_n + extra_min))
+    extra_end=$((plan_n + extra_max))
+    if (( m_start < extra_start )); then
+      m_start="$extra_start"
+    fi
+    if (( m_end > extra_end )); then
+      m_end="$extra_end"
+    fi
+  else
+    if (( m_start < m_min )); then
+      m_start="$m_min"
+    fi
+    if (( m_end > m_max )); then
+      m_end="$m_max"
+    fi
+  fi
+
+  if (( m_end > max_total_m )); then
+    m_end="$max_total_m"
+  fi
+
+  if (( m_start > m_end )); then
+    continue
+  fi
+
+  for ((m = m_start; m <= m_end; m++)); do
     if (( m > max_total_m )); then
       skipped_over_max_total=$((skipped_over_max_total + 1))
       continue
     fi
 
-    if [[ "$i_mode" == "half" ]]; then
-      i_end=$(((n - 1) / 2))
-    else
-      i_end=$((n - 1))
+    key="${m},${plan_n},${plan_i}"
+    if [[ -n "${completed[$key]+x}" ]]; then
+      skipped_completed=$((skipped_completed + 1))
+      continue
     fi
 
-    for ((i = 0; i <= i_end; i++)); do
-      key="${m},${n},${i}"
-      if [[ -n "${completed[$key]+x}" ]]; then
-        skipped_completed=$((skipped_completed + 1))
-        continue
-      fi
-
-      # Easy-first order: smaller n, then smaller m, then smaller i.
-      # This pushes higher i (often slower) later.
-      printf "%d,%d,%d\n" "$m" "$n" "$i" >> "$tmp_runs_file"
-    done
+    printf "%d,%d,%d\n" "$m" "$plan_n" "$plan_i" >> "$tmp_runs_file"
   done
 done
 
@@ -412,11 +468,7 @@ if [[ ! -s "$tmp_runs_file" ]]; then
   exit 0
 fi
 
-if [[ "$order_mode" == "hard" ]]; then
-  mapfile -t run_specs < <(sort -t, -k3,3nr -k2,2nr -k1,1nr "$tmp_runs_file")
-else
-  mapfile -t run_specs < <(sort -t, -k3,3n -k2,2n -k1,1n "$tmp_runs_file")
-fi
+mapfile -t run_specs < "$tmp_runs_file"
 rm -f "$tmp_runs_file"
 
 planned_runs="${#run_specs[@]}"
